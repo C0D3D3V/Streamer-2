@@ -1,0 +1,55 @@
+version: "3.9"
+
+# Example docker-compose.yml for Streamer.
+# Copy this file, adjust the environment variables, and run:
+#   docker compose up -d
+#
+# On first start, open http://localhost:8080 to complete the setup wizard.
+
+services:
+  streamer:
+    image: ghcr.io/c0d3d3v/streamer-2:latest
+    # Or build locally:
+    # build: .
+    container_name: streamer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persist the SQLite database, HLS segments, and MP4 archives.
+      - streamer_data:/data
+      # Optional: mount a custom config.yaml (created by the setup wizard on
+      # first run; you can also pre-populate it for automated deployments).
+      # - ./config.yaml:/app/config.yaml
+    environment:
+      - CONFIG_PATH=/data/config.yaml
+      - DATA_DIR=/data
+      # Set these to match the UID/GID of the user that owns your data directory
+      # on the host. Run `id` on the host to find your UID and GID.
+      - PUID=1000
+      - PGID=1000
+      - UMASK=022
+    # ── Intel QSV / VA-API hardware acceleration ──────────────────────────────
+    # Uncomment to expose the GPU render node for QSV or VA-API encoding.
+    # Also build with: docker build --target runtime-qsv -t streamer:qsv .
+    # Then set hwaccel: "qsv" (or "vaapi") in config.yaml.
+    # devices:
+    #   - /dev/dri:/dev/dri
+    #
+    # ── NVIDIA NVENC ──────────────────────────────────────────────────────────
+    # Requires the NVIDIA container runtime: https://docs.nvidia.com/datacenter/cloud-native/
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    #   - NVIDIA_DRIVER_CAPABILITIES=video,compute,utility
+    #
+    # ── Reverse proxy ─────────────────────────────────────────────────────────
+    # Optional: place streamer behind a reverse proxy (Traefik / nginx) that
+    # handles TLS termination. Example Traefik labels:
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.streamer.rule=Host(`stream.example.com`)"
+    #   - "traefik.http.routers.streamer.tls.certresolver=letsencrypt"
+
+volumes:
+  streamer_data:

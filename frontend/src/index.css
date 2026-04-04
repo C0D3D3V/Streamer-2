@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #3b82f6;
+  --color-brand-dark: #2563eb;
+  --color-surface: #1a1b23;
+  --color-surface-raised: #22232e;
+  --color-surface-border: #2e3042;
+}
+
+body {
+  background-color: #13141a;
+  color: #e2e4ec;
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}

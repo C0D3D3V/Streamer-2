@@ -1,0 +1,18 @@
+# Go binary
+/streamer
+
+# Runtime data
+data/
+config.yaml
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Keep the placeholder so Go embed works without a real build
+!internal/webui/dist/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
