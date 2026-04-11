@@ -102,12 +102,15 @@ func (m *Manager) Start() error {
 		"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", SegmentDuration),
 	)
 
+	// Map video first so that codec private options from LiveVideoArgs (e.g.
+	// -forced-idr, -preset) are associated with this output stream by FFmpeg's
+	// option parser. Options placed before -map are not reliably bound to a
+	// specific stream and trigger "Codec AVOption has not been used" warnings.
+	args = append(args, "-map", "0:v:0")
 	// LiveVideoArgs returns the scale filter + encoder for the active backend.
 	args = append(args, goffmpeg.LiveVideoArgs()...)
 	args = append(args,
-		// Explicit stream mapping: include both video (stream 0) and audio
-		// (stream 1). Without this the DASH muxer may silently drop audio.
-		"-map", "0:v:0",
+		// Map audio after the video encoder options.
 		"-map", "0:a:0",
 		// Transcode audio to AAC. Opus is non-standard in fMP4 and has poor
 		// player support. AAC is universally supported in MPEG-DASH and HLS.
@@ -124,6 +127,9 @@ func (m *Manager) Start() error {
 		"-index_correction", "1", // fix timestamp gaps from browser chunks
 		"-hls_playlist", "1", // also emit master.m3u8 for Safari/iOS
 		"-hls_master_name", "master.m3u8",
+		// Prevent "Too many packets buffered" warnings when video/audio packet
+		// arrival is slightly uneven (common with WebM pipe input).
+		"-max_muxing_queue_size", "400",
 		manifestPath,
 	)
 

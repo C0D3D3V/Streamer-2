@@ -291,9 +291,9 @@ function StreamCard({ stream: s, linksOpen, onToggleLinks, onDelete, isSelected,
           )}
           {/* Actions */}
           <div className="flex items-center gap-2 flex-wrap mt-2">
-            {(s.status === "scheduled" || s.status === "live") && (
+            {s.status === "scheduled" && (
               <Link to={`/stream/${s.id}`} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors">
-                {s.status === "live" ? "Manage" : "Go Live"}
+                Go Live
               </Link>
             )}
             {watchLink && (

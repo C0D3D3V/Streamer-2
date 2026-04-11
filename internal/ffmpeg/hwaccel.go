@@ -48,18 +48,51 @@ var known = []HWAccel{
 		// the filter graph (format=nv12,hwupload,...).
 		// -filter_hw_device tells the hwupload filter which device to target;
 		// without it, ffmpeg may not bind hwupload to the QSV surface.
-		liveDecodeArgs: []string{"-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"},
+		// -fflags +genpts regenerates missing PTS values from the WebM input,
+		// preventing timestamp holes that cause the DASH muxer to stall.
+		// -flags +cgop forces closed GOPs so every segment is independently
+		// decodable — critical for "Jump to live" seeks in DASH/HLS players.
+		liveDecodeArgs: []string{"-init_hw_device", "qsv=hw", "-filter_hw_device", "hw", "-fflags", "+genpts", "-flags", "+cgop"},
 		liveVideoArgs: []string{
-			"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,hwupload=extra_hw_frames=64",
+			// Upload frames to QSV surface first, then set pixel format on GPU.
+			// This avoids a redundant CPU-side format conversion step compared to
+			// the old format=nv12,hwupload ordering.
+			"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,hwupload=extra_hw_frames=64,format=qsv",
 			"-c:v", "h264_qsv",
+			// Tell the muxer the output pixel format is qsv (on-GPU surface).
+			"-pix_fmt", "qsv",
 			// h264_qsv has no CRF mode; an explicit bitrate is required.
+			// -maxrate/-bufsize force CBR mode (VBR by default). Without this the
+			// encoder banks bits during low-complexity scenes by delaying frame
+			// output, which causes segments to appear later than the wall-clock
+			// timing the player expects, producing intermittent 404 errors on
+			// live-edge segments.
 			"-b:v", "4M",
+			"-maxrate", "4M",
+			"-bufsize", "4M", // match maxrate — wider buffer reduces rate spikes
 			// low_power=1 selects VDEnc (fixed-function encoder). Required on
 			// 12th gen+ Intel (Alder Lake / Raptor Lake) which removed the VME
 			// engine — without this flag every parameter is reported unsupported.
 			"-low_power", "1",
 			// look_ahead is incompatible with low_power mode and adds latency.
 			"-look_ahead", "0",
+			// async_depth=1 minimises internal frame buffering. The default (4)
+			// causes the encoder to hold back several frames before outputting,
+			// which makes the stream slow to start and slow to recover after a
+			// "back to live" seek.
+			"-async_depth", "1",
+			// Disable B-frames: they require a reorder buffer that adds latency
+			// and can stall the decoder when seeking to the live edge.
+			"-bf", "0",
+			// forced-idr=1 ensures keyframe requests (from -force_key_frames)
+			// produce true IDR frames rather than open-GOP I-frames. Without
+			// this, hardware encoders may insert I-frames that still reference
+			// the previous segment's context, forcing the player to seek back
+			// further and causing the long "Jump to live" loading delay.
+			"-forced-idr", "1",
+			// fast preset: explicit quality/speed balance; omitting the preset
+			// leaves the encoder in an unspecified default state.
+			"-preset", "fast",
 		},
 		probeArgs: []string{
 			"-init_hw_device", "qsv=hw",
@@ -103,6 +136,9 @@ var known = []HWAccel{
 		liveVideoArgs: []string{
 			"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,hwupload",
 			"-c:v", "h264_vaapi",
+			// Force true IDR frames at keyframe boundaries so each DASH segment
+			// is independently decodable and "Jump to live" seeks resolve quickly.
+			"-forced-idr", "1",
 		},
 		probeArgs: []string{
 			"-vaapi_device", "/dev/dri/renderD128",

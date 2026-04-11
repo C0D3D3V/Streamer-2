@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import * as dashjs from "dashjs";
+import Hls from "hls.js";
 import { linksApi, type WatchInfo } from "../../api/links";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useStreamPolling } from "../../hooks/useStreamPolling";
+
+const _params = new URLSearchParams(window.location.search);
+
+// ?hlsjs: use hls.js for HLS playback instead of DASH.js.
+const useHlsJs: boolean = _params.has("hlsjs");
 
 // Detect native HLS support once at module load time.
 // Safari (macOS and iOS) reports a non-empty canPlayType for HLS and handles
@@ -11,11 +17,14 @@ import { useStreamPolling } from "../../hooks/useStreamPolling";
 // navigator.vendor so that browsers like Firefox, which may return "maybe" for
 // this MIME type in recent versions, still fall through to DASH.js.
 // Add ?hls to the URL to force HLS mode for testing on non-Safari browsers.
+// useHlsJs takes priority: if ?hlsjs is set, skip native-HLS detection so
+// Safari also goes through hls.js.
 const supportsNativeHLS: boolean =
-  (typeof document !== "undefined" &&
+  !useHlsJs &&
+  ((typeof document !== "undefined" &&
     document.createElement("video").canPlayType("application/vnd.apple.mpegurl") !== "" &&
     navigator.vendor.includes("Apple")) ||
-  new URLSearchParams(window.location.search).has("hls");
+  _params.has("hls"));
 
 export default function ViewerPage() {
   const { token } = useParams<{ token: string }>();
@@ -26,7 +35,7 @@ export default function ViewerPage() {
   const [archiveId, setArchiveId] = useState<string | null>(null);
   const [isAtLive, setIsAtLive] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const playerRef = useRef<dashjs.MediaPlayerClass | null>(null);
+  const playerRef = useRef<dashjs.MediaPlayerClass | Hls | null>(null);
 
   const shouldPoll = !!info && info.stream_status === "scheduled" && !info.requires_password;
   const { data: polledInfo } = useStreamPolling(token!, shouldPoll);
@@ -62,12 +71,12 @@ export default function ViewerPage() {
   // pinned to "live" for them.
   useEffect(() => {
     if (info?.stream_status !== "live") return;
-    if (supportsNativeHLS) { setIsAtLive(true); return; }
+    if (supportsNativeHLS || useHlsJs) { setIsAtLive(true); return; }
     const id = setInterval(() => {
       const player = playerRef.current;
-      if (!player) return;
+      if (!player || !("getCurrentLiveLatency" in player)) return;
       try {
-        const latency = player.getCurrentLiveLatency();
+        const latency = (player as dashjs.MediaPlayerClass).getCurrentLiveLatency();
         setIsAtLive(latency < 15);
       } catch {
         // DVR info not yet available; keep current state
@@ -82,14 +91,18 @@ export default function ViewerPage() {
     // seekToOriginalLive() moves to the live edge as tracked by DASH.js,
     // accounting for the configured liveDelay. Avoids the race condition of
     // setting video.currentTime directly while DASH.js is buffering.
-    player.seekToOriginalLive();
+    // hls.js does not have this method, so we guard with a duck-type check.
+    if ("seekToOriginalLive" in player) {
+      (player as dashjs.MediaPlayerClass).seekToOriginalLive();
+    }
     setIsAtLive(true);
   }, []);
 
   useEffect(() => {
     // Native HLS (Safari/iOS): the <video src> attribute handles playback
     // directly — no JavaScript player needed.
-    if (supportsNativeHLS) return;
+    // hls.js mode: handled by its own effect below.
+    if (supportsNativeHLS || useHlsJs) return;
 
     if (info?.stream_status !== "live" || !info.dash_url || !videoRef.current) return;
 
@@ -177,6 +190,28 @@ export default function ViewerPage() {
       activePlayer?.reset();
     };
   }, [info?.stream_status, info?.dash_url]);
+
+  // hls.js playback mode (?hlsjs query parameter).
+  // Uses the same master.m3u8 that the native ?hls path uses, but played
+  // through hls.js via MSE instead of the browser's built-in HLS stack.
+  useEffect(() => {
+    if (!useHlsJs) return;
+    if (info?.stream_status !== "live" || !info.hls_url || !videoRef.current) return;
+
+    const hls = new Hls();
+    playerRef.current = hls;
+    hls.loadSource(info.hls_url);
+    hls.attachMedia(videoRef.current);
+
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (data.fatal) console.error("hls.js fatal error:", data.type, data.details);
+    });
+
+    return () => {
+      playerRef.current = null;
+      hls.destroy();
+    };
+  }, [info?.stream_status, info?.hls_url]);
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -315,7 +350,7 @@ export default function ViewerPage() {
             </span>
             <span className="text-white text-xs font-medium">{isAtLive ? "LIVE" : "DVR"}</span>
           </div>
-          {!isAtLive && !supportsNativeHLS && (
+          {!isAtLive && !supportsNativeHLS && !useHlsJs && (
             <button
               onClick={jumpToLive}
               className="flex items-center gap-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-medium px-3 py-1 rounded-full transition-colors"
@@ -326,7 +361,7 @@ export default function ViewerPage() {
           )}
         </div>
         {/* Native HLS: set src directly so Safari/iOS handles the playlist.
-            DASH.js: leave src empty and let the useEffect attach the player. */}
+            DASH.js / hls.js: leave src empty and let the useEffect attach the player. */}
         <video
           ref={videoRef}
           src={supportsNativeHLS ? info.hls_url : undefined}

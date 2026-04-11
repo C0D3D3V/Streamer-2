@@ -366,17 +366,17 @@ func buildWatchInfo(link *SharedLink) (gin.H, error) {
 	if link.StreamID != nil {
 		var row struct {
 			Status      string     `gorm:"column:status"`
-			Quality     string     `gorm:"column:quality"`
+			Tier        string     `gorm:"column:tier"`
 			ScheduledAt *time.Time `gorm:"column:scheduled_at"`
 			Title       string     `gorm:"column:title"`
 			Rotation    int        `gorm:"column:rotation"`
 		}
 		if err := db.DB.Table("streams").
-			Select("status, quality, scheduled_at, title, rotation").
+			Select("status, tier, scheduled_at, title, rotation").
 			Where("id = ?", *link.StreamID).
 			Scan(&row).Error; err == nil {
 			info["stream_status"] = row.Status
-			info["stream_quality"] = row.Quality
+			info["stream_quality"] = row.Tier
 			info["stream_scheduled_at"] = row.ScheduledAt
 			info["stream_title"] = row.Title
 			info["stream_rotation"] = row.Rotation

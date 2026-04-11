@@ -63,6 +63,10 @@ export default function StreamerPage() {
     queryKey: ["streams", id],
     queryFn: () => streamsApi.get(id!),
     enabled: !!id,
+    // Prevent React Query from re-fetching when the tab regains focus.
+    // A re-fetch would change the `stream` object reference, re-trigger
+    // Effect 1's cleanup, and stop the camera tracks mid-broadcast.
+    refetchOnWindowFocus: false,
   });
 
   const startMutation = useMutation({
@@ -77,6 +81,12 @@ export default function StreamerPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const chunkWorkerRef = useRef<{ worker: Worker; url: string } | null>(null);
+  // Timestamp of the last successfully sent chunk (ms). Used to detect stalls.
+  const lastChunkSentRef = useRef<number>(0);
+  // Ref-stable stop callback so the stall-detection interval can call it
+  // without capturing a stale closure.
+  const handleStopRef = useRef<() => Promise<void>>(async () => {});
   // Kept as a ref so the tier-preview effect can read it without becoming a dep.
   const isLiveRef = useRef(false);
 
@@ -140,6 +150,11 @@ export default function StreamerPage() {
       });
 
     return () => {
+      // Never stop camera tracks while a broadcast is in progress. This
+      // cleanup runs if `stream` or `facingMode` deps change — which can
+      // happen when React Query re-fetches on window focus even though the
+      // stream object is otherwise unchanged.
+      if (isLiveRef.current) return;
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
       setCameraReady(false);
@@ -213,6 +228,52 @@ export default function StreamerPage() {
     return () => clearInterval(t);
   }, [isLive]);
 
+  // ── Background tab handling ───────────────────────────────────────────────
+  // When the tab is hidden, flush the recorder buffer so ffmpeg gets a clean
+  // segment boundary before frame delivery stops. Browsers stop delivering
+  // camera frames when a tab is hidden; we cannot restart recording reliably,
+  // so the stall-detection effect below will auto-stop the stream.
+  useEffect(() => {
+    if (!isLive) return;
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        // Flush recorder buffer so ffmpeg gets a clean segment boundary before
+        // frame delivery stops.
+        if (mediaRecorderRef.current?.state === "recording") {
+          mediaRecorderRef.current.requestData();
+        }
+      } else {
+        // Tab became visible: reset the stall timer so the camera has a fresh
+        // window to resume delivering frames. Without this, any stall time
+        // accumulated in the background would persist and trigger an immediate
+        // auto-stop on return.
+        lastChunkSentRef.current = Date.now();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [isLive]);
+
+  // ── Stall detection ───────────────────────────────────────────────────────
+  // If no chunk has been sent for 10 seconds while live (e.g. the tab was
+  // moved to the background and the browser stopped delivering camera frames),
+  // automatically stop the stream so the server does not wait indefinitely.
+  useEffect(() => {
+    if (!isLive) return;
+    lastChunkSentRef.current = Date.now();
+    const id = setInterval(() => {
+      if (Date.now() - lastChunkSentRef.current > 10_000) {
+        clearInterval(id);
+        handleStopRef.current();
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [isLive]);
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   const handleVideoMetadata = useCallback(() => {
     const vid = videoRef.current;
@@ -223,6 +284,7 @@ export default function StreamerPage() {
   const sendChunk = useCallback(async (blob: Blob) => {
     try {
       await apiPostBinary(`/api/streams/${id}/ingest`, blob);
+      lastChunkSentRef.current = Date.now();
       setBytesSent(b => b + blob.size);
     } catch (err) {
       console.error("ingest error:", err);
@@ -258,7 +320,20 @@ export default function StreamerPage() {
     recorder.ondataavailable = e => {
       if (e.data.size > 0) sendChunk(e.data);
     };
-    recorder.start(2000);
+
+    // Drive requestData() from a Web Worker so the interval survives mild timer
+    // throttling (e.g. Chrome in background before full frame-delivery stops).
+    recorder.start();
+    const workerSrc = "setInterval(() => postMessage(null), 2000)";
+    const workerBlob = new Blob([workerSrc], { type: "text/javascript" });
+    const workerUrl = URL.createObjectURL(workerBlob);
+    const chunkWorker = new Worker(workerUrl);
+    chunkWorker.onmessage = () => {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.requestData();
+      }
+    };
+    chunkWorkerRef.current = { worker: chunkWorker, url: workerUrl };
     mediaRecorderRef.current = recorder;
     setElapsed(0);
     setBytesSent(0);
@@ -266,10 +341,18 @@ export default function StreamerPage() {
   };
 
   const handleStop = async () => {
+    if (chunkWorkerRef.current) {
+      chunkWorkerRef.current.worker.terminate();
+      URL.revokeObjectURL(chunkWorkerRef.current.url);
+      chunkWorkerRef.current = null;
+    }
     mediaRecorderRef.current?.stop();
     setIsLive(false);
     await stopMutation.mutateAsync();
   };
+  // Keep ref in sync so the stall-detection interval always has the latest
+  // version even though the function is not wrapped in useCallback.
+  handleStopRef.current = handleStop;
 
   const toggleFacing = () => {
     if (!isLive) {
@@ -425,6 +508,17 @@ export default function StreamerPage() {
             )}
           </div>
         </div>
+
+        {/* Persistent hint while live — reminds the streamer to keep the tab
+            active. Shown in the bottom-left so it stays visible at all times
+            (a full-screen overlay is useless because the tab is hidden). */}
+        {isLive && (
+          <div className="absolute bottom-4 left-4">
+            <p className="text-xs text-gray-500 bg-black/50 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10">
+              Keep tab active
+            </p>
+          </div>
+        )}
 
         {/* Error toast */}
         {error && (

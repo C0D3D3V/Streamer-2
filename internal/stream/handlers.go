@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/c0d3d3v/streamer-2/internal/auth"
@@ -143,6 +144,7 @@ func HandleStart(c *gin.Context) {
 		return
 	}
 	Register(s.ID, mgr)
+	startWatchdog()
 
 	// Notify any waiting viewers via WebSocket that the stream has gone live.
 	websocket.Hub.Broadcast(s.ID, websocket.Message{
@@ -201,6 +203,7 @@ func HandleIngest(c *gin.Context) {
 		return
 	}
 
+	TouchLastSeen(streamID)
 	c.Status(http.StatusNoContent)
 }
 
@@ -401,4 +404,47 @@ var finalizeArchive = func(s *Stream) {
 // creating an import cycle.
 func SetFinalizeFunc(fn func(*Stream)) {
 	finalizeArchive = fn
+}
+
+// watchdogOnce ensures the ingest watchdog goroutine is started only once.
+var watchdogOnce sync.Once
+
+// startWatchdog starts a background goroutine that polls for streams that
+// have not received any ingest data for longer than IngestTimeout and stops
+// them automatically. This handles the case where the streamer closes the
+// browser tab without pressing "End Stream".
+func startWatchdog() {
+	watchdogOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				for _, id := range timedOutStreams() {
+					log.Printf("stream[%s]: no ingest data for %s, auto-stopping", id, IngestTimeout)
+					internalStopStream(id)
+				}
+			}
+		}()
+	})
+}
+
+// internalStopStream stops a live stream without an HTTP context. It performs
+// the same steps as HandleStop: marks the stream as ended, stops the ffmpeg
+// pipeline, triggers archive finalization, and notifies viewers via WebSocket.
+func internalStopStream(streamID string) {
+	s, err := GetByID(streamID)
+	if err != nil {
+		return
+	}
+	stopped, err := Stop(streamID, s.OwnerID)
+	if err != nil {
+		// Already ended or not found — nothing to do.
+		return
+	}
+	StopManager(streamID)
+	go finalizeArchive(stopped)
+	websocket.Hub.Broadcast(streamID, websocket.Message{
+		Type:    "stream.ended",
+		Payload: map[string]string{"stream_id": streamID},
+	})
 }
