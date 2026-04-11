@@ -31,7 +31,8 @@ services:
       - UMASK=022
     # ── Intel QSV / VA-API hardware acceleration ──────────────────────────────
     # Uncomment to expose the GPU render node for QSV or VA-API encoding.
-    # Also build with: docker build --target runtime-qsv -t streamer:qsv .
+    # Use the pre-built QSV image (Debian-based): ghcr.io/c0d3d3v/streamer-2:latest-qsv
+    # Or build locally: docker build --target app-qsv -t streamer:qsv .
     # Then set hwaccel: "qsv" (or "vaapi") in config.yaml.
     # devices:
     #   - /dev/dri:/dev/dri

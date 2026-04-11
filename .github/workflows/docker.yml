@@ -21,6 +21,16 @@ jobs:
       contents: read
       packages: write
 
+    strategy:
+      matrix:
+        include:
+          - target: app
+            suffix: ""
+          - target: app-qsv
+            suffix: -qsv
+          - target: app-ubuntu-qsv
+            suffix: -ubuntu-qsv
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,29 +49,30 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Generate image tags:
-      #   - latest       (on push to main)
-      #   - v1.2.3       (on version tag)
-      #   - sha-abc1234  (always, for traceability)
+      #   - latest / latest-qsv       (on push to main)
+      #   - v1.2.3 / v1.2.3-qsv       (on version tag)
+      #   - sha-abc1234 / sha-abc1234-qsv  (always, for traceability)
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-,format=short
+            type=raw,value=latest${{ matrix.suffix }},enable={{is_default_branch}}
+            type=ref,event=branch,suffix=${{ matrix.suffix }}
+            type=semver,pattern={{version}},suffix=${{ matrix.suffix }}
+            type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.suffix }}
+            type=sha,prefix=sha-,format=short,suffix=${{ matrix.suffix }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
+          target: ${{ matrix.target }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
           # Use GitHub Actions cache to speed up repeated builds.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}

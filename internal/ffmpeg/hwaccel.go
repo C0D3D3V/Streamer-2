@@ -45,18 +45,31 @@ var known = []HWAccel{
 		VideoEncoder: "h264_qsv",
 		// Live pipeline: initialise the device but do not request hw decode
 		// output format — browser frames arrive on CPU and are uploaded via
-		// the filter graph (format=nv12,hwupload,...,format=qsv).
-		liveDecodeArgs: []string{"-init_hw_device", "qsv=hw"},
+		// the filter graph (format=nv12,hwupload,...).
+		// -filter_hw_device tells the hwupload filter which device to target;
+		// without it, ffmpeg may not bind hwupload to the QSV surface.
+		liveDecodeArgs: []string{"-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"},
 		liveVideoArgs: []string{
-			"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,hwupload=extra_hw_frames=64,format=qsv",
+			"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,hwupload=extra_hw_frames=64",
 			"-c:v", "h264_qsv",
+			// h264_qsv has no CRF mode; an explicit bitrate is required.
+			"-b:v", "4M",
+			// low_power=1 selects VDEnc (fixed-function encoder). Required on
+			// 12th gen+ Intel (Alder Lake / Raptor Lake) which removed the VME
+			// engine — without this flag every parameter is reported unsupported.
+			"-low_power", "1",
+			// look_ahead is incompatible with low_power mode and adds latency.
+			"-look_ahead", "0",
 		},
 		probeArgs: []string{
 			"-init_hw_device", "qsv=hw",
 			"-f", "lavfi", "-i", "color=black:s=64x64:r=1",
 			"-vframes", "1",
-			"-vf", "format=nv12,hwupload=extra_hw_frames=64,format=qsv",
+			"-vf", "format=nv12,hwupload=extra_hw_frames=64",
 			"-c:v", "h264_qsv",
+			"-b:v", "1M",
+			"-low_power", "1",
+			"-look_ahead", "0",
 			"-f", "null", "-",
 		},
 	},

@@ -100,8 +100,9 @@ func (m *Manager) Start() error {
 		// Force a keyframe every SegmentDuration seconds so the muxer can
 		// split video at the target interval.
 		"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", SegmentDuration),
-		// LiveVideoArgs returns the scale filter + encoder for the active backend.
 	)
+
+	// LiveVideoArgs returns the scale filter + encoder for the active backend.
 	args = append(args, goffmpeg.LiveVideoArgs()...)
 	args = append(args,
 		// Explicit stream mapping: include both video (stream 0) and audio

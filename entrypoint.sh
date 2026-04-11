@@ -15,6 +15,10 @@ chown -R "${PUID}:${PGID}" /data
 umask "${UMASK}"
 
 # Drop from root to the requested UID:GID and replace this shell with the app.
-# su-exec is a minimal setuid helper (Alpine equivalent of gosu) that does a
-# clean exec without leaving a shell process in the process tree.
-exec su-exec "${PUID}:${PGID}" /app/streamer "$@"
+# Prefer su-exec (Alpine) but fall back to gosu (Debian/Ubuntu); both accept
+# the same "user[:group] command" interface and do a clean exec.
+if command -v su-exec > /dev/null 2>&1; then
+    exec su-exec "${PUID}:${PGID}" /app/streamer "$@"
+else
+    exec gosu "${PUID}:${PGID}" /app/streamer "$@"
+fi

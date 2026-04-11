@@ -39,8 +39,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /streamer ./cmd/server
 
 # ── Stage 3: Runtime image ────────────────────────────────────────────────────
 # Default: Alpine with software ffmpeg (works on any CPU, no GPU required).
-# For Intel QSV or VA-API hardware acceleration, use the -qsv build target:
-#   docker build --target runtime-qsv -t streamer:qsv .
 FROM alpine:3.20 AS runtime-base
 
 # ffmpeg    – HLS ingest pipeline and archive MP4 finalization
@@ -48,53 +46,98 @@ FROM alpine:3.20 AS runtime-base
 #             to run the app as the user-specified PUID/PGID instead of root
 RUN apk add --no-cache ffmpeg ca-certificates su-exec
 
-# ── Stage 3a: QSV / VA-API runtime (Intel GPU) ───────────────────────────────
-# Use this stage if you have an Intel GPU and want hardware-accelerated
-# archive finalization (set hwaccel: qsv or hwaccel: vaapi in config.yaml).
+# ── Stage 3a: QSV / VA-API runtime (Intel GPU, Debian) ───────────────────────
+# Debian bookworm-slim with Intel GPU drivers for VA-API and QSV encoding.
+#
+# intel-media-va-driver – iHD VA-API driver for Gen8+ Intel GPUs (non-free)
+# libmfx-gen1.2         – oneVPL GPU plugin for Gen12+ QSV; trixie's ffmpeg 7.x
+#                         uses --enable-libvpl so this is the correct runtime lib
+# vainfo                – VA-API info CLI (binary package from libva-utils source)
+# ffmpeg                – compiled with --enable-vaapi and --enable-libmfx
+# gosu                  – privilege-drop helper (same interface as su-exec)
 #
 # Requires the host to expose the GPU render node:
-#   docker run --device /dev/dri:/dev/dri ...
-# Or in docker-compose:
 #   devices:
 #     - /dev/dri:/dev/dri
-FROM alpine:3.20 AS runtime-qsv
+FROM debian:trixie-slim AS runtime-qsv
 
-# intel-media-driver provides the iHD VA-API driver for Gen8+ Intel GPUs.
-# libva-intel-driver provides the i965 driver for older Gen4–Gen7 GPUs.
-# mesa-va-gallium covers AMD and newer Intel via open-source Mesa drivers.
-# libva-utils provides vainfo for verifying hardware acceleration is working.
-RUN apk add --no-cache \
-      ffmpeg \
-      ca-certificates \
-      su-exec \
-      intel-media-driver \
-      libva-intel-driver \
-      libva-utils \
-      mesa-va-gallium
+# Replace the DEB822 sources file with a classic sources.list that includes
+# non-free so intel-media-va-driver is reachable. libmfx-gen1.2 is in main.
+RUN rm /etc/apt/sources.list.d/debian.sources \
+    && echo "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > /etc/apt/sources.list \
+    && echo "deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list \
+    && echo "deb http://deb.debian.org/debian-security trixie-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+         ffmpeg \
+         ca-certificates \
+         gosu \
+         intel-media-va-driver \
+         libmfx-gen1.2 \
+         vainfo \
+    && rm -rf /var/lib/apt/lists/*
 
-# ── Pick the default runtime stage ───────────────────────────────────────────
-# Override with: docker build --target runtime-qsv ...
-FROM runtime-base
+# ── Stage 3b: QSV / VA-API runtime (Intel GPU, Ubuntu variant) ───────────────
+# Alternative to runtime-qsv using Ubuntu 24.04. onevpl-intel-gpu is available
+# in Ubuntu's universe repository without needing Intel's external apt repo.
+FROM ubuntu:24.04 AS runtime-ubuntu-qsv
 
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends software-properties-common \
+    && add-apt-repository universe \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+         ffmpeg \
+         ca-certificates \
+         gosu \
+         intel-media-va-driver \
+         libmfx-gen1.2 \
+         vainfo \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Stage 4: Assemble the final images ───────────────────────────────────────
+# Named targets differ only in their base OS / driver set.
+
+FROM runtime-base AS app
 WORKDIR /app
-
 COPY --from=go-builder /streamer ./streamer
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
-
-# /data holds the SQLite database, HLS segments, and MP4 archives.
-# Ownership is set at runtime by the entrypoint script to match PUID/PGID.
 RUN mkdir -p /data
-
 EXPOSE 8080
-
 ENV CONFIG_PATH=/data/config.yaml
 ENV DATA_DIR=/data
-# Default UID/GID/UMASK – override in docker-compose or with -e flags.
 ENV PUID=1000
 ENV PGID=1000
 ENV UMASK=022
+ENTRYPOINT ["./entrypoint.sh"]
 
-# The entrypoint runs as root so it can chown /data and call su-exec.
-# It then drops to PUID:PGID before exec-ing the application.
+FROM runtime-qsv AS app-qsv
+WORKDIR /app
+COPY --from=go-builder /streamer ./streamer
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+RUN mkdir -p /data
+EXPOSE 8080
+ENV CONFIG_PATH=/data/config.yaml
+ENV DATA_DIR=/data
+ENV PUID=1000
+ENV PGID=1000
+ENV UMASK=022
+ENTRYPOINT ["./entrypoint.sh"]
+
+FROM runtime-ubuntu-qsv AS app-ubuntu-qsv
+WORKDIR /app
+COPY --from=go-builder /streamer ./streamer
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+RUN mkdir -p /data
+EXPOSE 8080
+ENV CONFIG_PATH=/data/config.yaml
+ENV DATA_DIR=/data
+ENV PUID=1000
+ENV PGID=1000
+ENV UMASK=022
 ENTRYPOINT ["./entrypoint.sh"]

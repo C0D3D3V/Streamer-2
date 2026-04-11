@@ -67,6 +67,7 @@ identity_providers:
           - authorization_code
         access_token_signed_response_alg: none
         userinfo_signed_response_alg: none
+        token_endpoint_auth_method: client_secret_basic
 ```
 
 > **Tip:** Generate the client secret with `openssl rand -hex 32`. Hash it with Authelia's `authelia crypto hash generate pbkdf2 --variant sha512`.
