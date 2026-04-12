@@ -382,7 +382,8 @@ func HandleServeMedia(c *gin.Context) {
 		return
 	}
 
-	// fMP4 segments (.m4s) are immutable once written — safe to cache.
+	// fMP4 segments (.m4s) are immutable once written — safe to cache aggressively.
+	c.Header("Cache-Control", "public, max-age=3600")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.File(fullPath)
 }
