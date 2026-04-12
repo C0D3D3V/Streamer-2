@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/c0d3d3v/streamer-2/internal/auth"
+	"github.com/c0d3d3v/streamer-2/internal/config"
 	"github.com/c0d3d3v/streamer-2/internal/stream/live"
 	"github.com/c0d3d3v/streamer-2/internal/viewer"
 	"github.com/c0d3d3v/streamer-2/internal/websocket"
@@ -150,8 +151,8 @@ func HandleStart(c *gin.Context) {
 	websocket.Hub.Broadcast(s.ID, websocket.Message{
 		Type: "stream.started",
 		Payload: map[string]string{
-			"dash_url": "/live/" + s.ID + "/manifest.mpd",
-			"hls_url":  "/live/" + s.ID + "/master.m3u8",
+			"dash_url": config.Get().App.LiveBaseURL() + "/live/" + s.ID + "/manifest.mpd",
+			"hls_url":  config.Get().App.LiveBaseURL() + "/live/" + s.ID + "/master.m3u8",
 		},
 	})
 

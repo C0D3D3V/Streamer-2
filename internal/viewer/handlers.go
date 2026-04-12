@@ -381,8 +381,8 @@ func buildWatchInfo(link *SharedLink) (gin.H, error) {
 			info["stream_title"] = row.Title
 			info["stream_rotation"] = row.Rotation
 			if row.Status == "live" {
-				info["dash_url"] = "/live/" + *link.StreamID + "/manifest.mpd"
-				info["hls_url"] = "/live/" + *link.StreamID + "/master.m3u8"
+				info["dash_url"] = config.Get().App.LiveBaseURL() + "/live/" + *link.StreamID + "/manifest.mpd"
+				info["hls_url"] = config.Get().App.LiveBaseURL() + "/live/" + *link.StreamID + "/master.m3u8"
 			}
 			// For ended streams, include the archive URL if finalization is done.
 			if row.Status == "ended" {

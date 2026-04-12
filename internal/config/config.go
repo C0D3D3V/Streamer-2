@@ -87,6 +87,12 @@ type AppConfig struct {
 	// When set, the archive finalizer re-encodes video using the hardware
 	// encoder instead of stream-copying.
 	HWAccel string `yaml:"hwaccel"`
+	// LiveProxyURL is the base URL of an nginx caching proxy that serves live
+	// stream files (DASH/HLS segments) to viewers. When set, manifest and
+	// segment URLs sent to viewers point to this host instead of the origin.
+	// Leave empty to serve live files directly from this server (default).
+	// Example: "https://tube-live.vogt.casa:8888"
+	LiveProxyURL string `yaml:"live_proxy_url"`
 }
 
 // manager is the package-level singleton that holds the loaded config and its
@@ -185,6 +191,14 @@ func LockSetup() error {
 	return Update(func(c *Config) {
 		c.App.SetupLocked = true
 	})
+}
+
+// LiveBaseURL returns the base URL used to construct live stream file URLs
+// (DASH manifests, HLS playlists, segments). When a LiveProxyURL is configured
+// it is returned; otherwise an empty string is returned and callers should use
+// relative paths so the origin server serves the files directly.
+func (a *AppConfig) LiveBaseURL() string {
+	return a.LiveProxyURL
 }
 
 // defaults returns a Config pre-populated with sane out-of-the-box values.
