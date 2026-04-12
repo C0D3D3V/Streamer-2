@@ -52,12 +52,20 @@ var known = []HWAccel{
 		// preventing timestamp holes that cause the DASH muxer to stall.
 		// -flags +cgop forces closed GOPs so every segment is independently
 		// decodable — critical for "Jump to live" seeks in DASH/HLS players.
-		liveDecodeArgs: []string{"-init_hw_device", "qsv=hw", "-filter_hw_device", "hw", "-fflags", "+genpts", "-flags", "+cgop"},
+		// -fflags +genpts regenerates missing PTS values from the WebM input,
+		// preventing timestamp holes that cause the DASH muxer to stall.
+		// -flags +cgop is intentionally omitted: -forced-idr 1 on the encoder
+		// already ensures closed IDR boundaries on the output; applying +cgop to
+		// the input side is redundant and may add muxer processing overhead.
+		liveDecodeArgs: []string{"-init_hw_device", "qsv=hw", "-filter_hw_device", "hw", "-fflags", "+genpts"},
 		liveVideoArgs: []string{
-			// Upload frames to QSV surface first, then set pixel format on GPU.
-			// This avoids a redundant CPU-side format conversion step compared to
-			// the old format=nv12,hwupload ordering.
-			"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,hwupload=extra_hw_frames=64,format=qsv",
+			// Explicitly convert to nv12 on CPU before uploading to the QSV
+			// surface. This removes ambiguity about the input pixel format and
+			// avoids implicit multi-step conversions inside hwupload.
+			// extra_hw_frames=16: enough for async_depth=1 + 2 reference frames
+			// + pipeline margin. 64 (previous value) pre-allocates far more than
+			// needed and may hint to the driver that a deeper pipeline is expected.
+			"-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,hwupload=extra_hw_frames=16,format=qsv",
 			"-c:v", "h264_qsv",
 			// Tell the muxer the output pixel format is qsv (on-GPU surface).
 			"-pix_fmt", "qsv",
@@ -69,7 +77,11 @@ var known = []HWAccel{
 			// live-edge segments.
 			"-b:v", "4M",
 			"-maxrate", "4M",
-			"-bufsize", "4M", // match maxrate — wider buffer reduces rate spikes
+			// bufsize=1M (0.25s at 4 Mbps): tight VBV window forces the encoder
+			// to flush frequently rather than smoothing over a full second.
+			// Previous value (4M = 1s window) was a major contributor to the
+			// 20s live latency vs VAAPI's 8s.
+			"-bufsize", "1M",
 			// low_power=1 selects VDEnc (fixed-function encoder). Required on
 			// 12th gen+ Intel (Alder Lake / Raptor Lake) which removed the VME
 			// engine — without this flag every parameter is reported unsupported.
@@ -90,9 +102,11 @@ var known = []HWAccel{
 			// the previous segment's context, forcing the player to seek back
 			// further and causing the long "Jump to live" loading delay.
 			"-forced-idr", "1",
-			// fast preset: explicit quality/speed balance; omitting the preset
-			// leaves the encoder in an unspecified default state.
-			"-preset", "fast",
+			// veryfast maps to the highest target-usage (TU7) for VDEnc, which
+			// disables temporal features that add pipeline depth. Owncast uses
+			// veryfast for the same reason. Previous value "fast" (≈TU5) was a
+			// significant contributor to the elevated latency vs VAAPI.
+			"-preset", "veryfast",
 		},
 		probeArgs: []string{
 			"-init_hw_device", "qsv=hw",
