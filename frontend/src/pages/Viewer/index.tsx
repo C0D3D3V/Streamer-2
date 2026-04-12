@@ -6,7 +6,7 @@ import { linksApi, type WatchInfo } from "../../api/links";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useStreamPolling } from "../../hooks/useStreamPolling";
 
-const _params = new URLSearchParams(window.location.search);
+const _params = new URLSearchParams(globalThis.location.search);
 
 // ?hlsjs: use hls.js for HLS playback instead of DASH.js.
 const useHlsJs: boolean = _params.has("hlsjs");
@@ -14,8 +14,9 @@ const useHlsJs: boolean = _params.has("hlsjs");
 // Detect native HLS support once at module load time.
 // Safari (macOS and iOS) reports a non-empty canPlayType for HLS and handles
 // live playlists natively without a JavaScript player. We additionally check
-// navigator.vendor so that browsers like Firefox, which may return "maybe" for
-// this MIME type in recent versions, still fall through to DASH.js.
+// the userAgent for "Safari" (excluding Chrome-based browsers) so that
+// browsers like Firefox, which may return "maybe" for this MIME type in recent
+// versions, still fall through to DASH.js.
 // Add ?hls to the URL to force HLS mode for testing on non-Safari browsers.
 // useHlsJs takes priority: if ?hlsjs is set, skip native-HLS detection so
 // Safari also goes through hls.js.
@@ -23,7 +24,7 @@ const supportsNativeHLS: boolean =
   !useHlsJs &&
   ((typeof document !== "undefined" &&
     document.createElement("video").canPlayType("application/vnd.apple.mpegurl") !== "" &&
-    navigator.vendor.includes("Apple")) ||
+    navigator.userAgent.includes("Safari") && !navigator.userAgent.includes("Chrome")) ||
   _params.has("hls"));
 
 export default function ViewerPage() {
@@ -76,7 +77,7 @@ export default function ViewerPage() {
       const player = playerRef.current;
       if (!player || !("getCurrentLiveLatency" in player)) return;
       try {
-        const latency = (player as dashjs.MediaPlayerClass).getCurrentLiveLatency();
+        const latency = player.getCurrentLiveLatency();
         setIsAtLive(latency < 15);
       } catch {
         // DVR info not yet available; keep current state
@@ -93,7 +94,7 @@ export default function ViewerPage() {
     // setting video.currentTime directly while DASH.js is buffering.
     // hls.js does not have this method, so we guard with a duck-type check.
     if ("seekToOriginalLive" in player) {
-      (player as dashjs.MediaPlayerClass).seekToOriginalLive();
+      player.seekToOriginalLive();
     }
     setIsAtLive(true);
   }, []);
@@ -117,6 +118,16 @@ export default function ViewerPage() {
     // and the DVR timeline hasn't been populated yet. We detect this stall by
     // checking whether playback has actually begun a few seconds after the
     // manifest loads, and reinitialise if not.
+    function retryIfStalled() {
+      retryTimer = null;
+      const video = videoRef.current;
+      if (!video || video.currentTime > 0) return; // already playing
+      if (retries >= MAX_RETRIES) return;
+      retries++;
+      console.log(`DASH.js stalled after manifest load — retrying (${retries}/${MAX_RETRIES})`);
+      initPlayer();
+    }
+
     function initPlayer() {
       activePlayer?.reset();
       const player = dashjs.MediaPlayer().create();
@@ -166,15 +177,7 @@ export default function ViewerPage() {
         console.log("DASH manifest loaded");
         // If the video hasn't started playing after 5 s (e.g. due to the
         // DVR-null crash on a freshly-started stream), reinitialise.
-        retryTimer = setTimeout(() => {
-          retryTimer = null;
-          const video = videoRef.current;
-          if (!video || video.currentTime > 0) return; // already playing
-          if (retries >= MAX_RETRIES) return;
-          retries++;
-          console.log(`DASH.js stalled after manifest load — retrying (${retries}/${MAX_RETRIES})`);
-          initPlayer();
-        }, 5000);
+        retryTimer = setTimeout(retryIfStalled, 5000);
       });
 
       player.on(dashjs.MediaPlayer.events.ERROR, (e: dashjs.ErrorEvent) => {
@@ -213,7 +216,7 @@ export default function ViewerPage() {
     };
   }, [info?.stream_status, info?.hls_url]);
 
-  const handlePasswordSubmit = async (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setAuthError(null);
     try {
@@ -242,7 +245,7 @@ export default function ViewerPage() {
   if (info.requires_password) return (
     <div className="flex-1 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        <div className="bg-[#1a1b23] border border-[#2e3042] rounded-xl p-6 text-center">
+        <div className="bg-surface border border-surface-border rounded-xl p-6 text-center">
           <p className="text-2xl mb-3">🔒</p>
           <h2 className="text-white font-semibold mb-1">{info.stream_title || "Protected Stream"}</h2>
           <p className="text-gray-400 text-sm mb-5">This stream requires a password.</p>
@@ -253,7 +256,7 @@ export default function ViewerPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full px-3 py-2 rounded-lg bg-[#13141a] border border-[#2e3042] text-white placeholder-gray-600 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full px-3 py-2 rounded-lg bg-surface-deep border border-surface-border text-white placeholder-gray-600 text-sm focus:outline-none focus:border-blue-500 transition-colors"
             />
             {authError && <p className="text-sm text-red-400">{authError}</p>}
             <button type="submit" className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors">
@@ -302,14 +305,16 @@ export default function ViewerPage() {
                 controls
                 playsInline
                 className="w-full max-h-[85vh] bg-black"
-              />
+              >
+                <track kind="captions" />
+              </video>
             </div>
-            <div className="p-4 border-t border-[#2e3042] flex items-center justify-between gap-4">
+            <div className="p-4 border-t border-surface-border flex items-center justify-between gap-4">
               <h2 className="text-white font-medium truncate">{info.stream_title}</h2>
               <a
                 href={`${videoUrl}?download=1`}
                 download
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2e3042] hover:bg-[#3a3d54] text-gray-300 hover:text-white text-sm font-medium transition-colors"
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-border hover:bg-surface-border-hover text-gray-300 hover:text-white text-sm font-medium transition-colors"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -355,7 +360,7 @@ export default function ViewerPage() {
               onClick={jumpToLive}
               className="flex items-center gap-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-medium px-3 py-1 rounded-full transition-colors"
             >
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />{" "}
               Jump to Live
             </button>
           )}
@@ -369,9 +374,11 @@ export default function ViewerPage() {
           controls
           playsInline
           className="w-full max-h-[85vh] bg-black"
-        />
+        >
+          <track kind="captions" />
+        </video>
       </div>
-      <div className="p-4 border-t border-[#2e3042]">
+      <div className="p-4 border-t border-surface-border">
         <h2 className="text-white font-medium">{info.stream_title}</h2>
       </div>
     </div>

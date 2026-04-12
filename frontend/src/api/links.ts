@@ -32,7 +32,8 @@ export const linksApi = {
     if (params?.stream_id) q.set("stream_id", params.stream_id);
     if (params?.archive_id) q.set("archive_id", params.archive_id);
     const qs = q.toString();
-    return apiFetch<SharedLink[]>(`/api/links${qs ? `?${qs}` : ""}`);
+    const path = qs ? `/api/links?${qs}` : "/api/links";
+    return apiFetch<SharedLink[]>(path);
   },
 
   create: (data: {

@@ -66,7 +66,7 @@ export default function Dashboard() {
     },
   });
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     const scheduled_at = scheduledAt ? new Date(scheduledAt).toISOString() : undefined;
     createMutation.mutate({ title, scheduled_at });
@@ -130,8 +130,8 @@ export default function Dashboard() {
     .sort((a, b) => b.sortKey - a.sortKey);
 
   const deleteLabel = deleteTarget?.kind === "stream"
-    ? `Delete stream "${(deleteTarget.data as Stream).title}"? This cannot be undone.`
-    : `Delete recording "${(deleteTarget?.data as Archive | undefined)?.title}"? This cannot be undone.`;
+    ? `Delete stream "${deleteTarget.data.title}"? This cannot be undone.`
+    : `Delete recording "${deleteTarget?.data.title}"? This cannot be undone.`;
 
   return (
     <div className="flex-1 p-4 sm:p-6 max-w-4xl mx-auto w-full">
@@ -181,12 +181,13 @@ export default function Dashboard() {
 
       {/* Create form */}
       {createOpen && (
-        <div className="bg-[#1a1b23] border border-[#2e3042] rounded-xl p-5 mb-6">
+        <div className="bg-surface border border-surface-border rounded-xl p-5 mb-6">
           <h2 className="text-sm font-medium text-gray-300 mb-4">Schedule a Stream</h2>
           <form onSubmit={handleCreate} className="flex flex-wrap gap-3 items-end">
             <div className="flex-1 min-w-48 space-y-1">
-              <label className="text-xs text-gray-500">Title</label>
+              <label htmlFor="stream-title" className="text-xs text-gray-500">Title</label>
               <input
+                id="stream-title"
                 placeholder="My Stream"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -195,8 +196,8 @@ export default function Dashboard() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-500">Schedule (optional)</label>
-              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} className={inputCls} />
+              <label htmlFor="stream-schedule" className="text-xs text-gray-500">Schedule (optional)</label>
+              <input id="stream-schedule" type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} className={inputCls} />
             </div>
             <button
               type="submit"
@@ -210,22 +211,24 @@ export default function Dashboard() {
       )}
 
       {/* Combined list */}
-      {isLoading ? (
+      {isLoading && (
         <div className="flex justify-center py-16">
           <div className="w-6 h-6 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
         </div>
-      ) : items.length === 0 ? (
+      )}
+      {!isLoading && items.length === 0 && (
         <div className="text-center py-16 text-gray-500">
           <p className="text-4xl mb-3">📡</p>
           <p>No streams yet. Create one to get started.</p>
         </div>
-      ) : (
+      )}
+      {!isLoading && items.length > 0 && (
         <div className="space-y-3">
           {items.map((item) =>
             item.kind === "stream"
               ? <StreamCard
                   key={item.data.id}
-                  stream={item.data as Stream}
+                  stream={item.data}
                   linksOpen={expandedLinks === item.data.id}
                   onToggleLinks={() => toggleLinks(item.data.id)}
                   onDelete={() => setDeleteTarget(item)}
@@ -234,7 +237,7 @@ export default function Dashboard() {
                 />
               : <ArchiveCard
                   key={item.data.id}
-                  archive={item.data as Archive}
+                  archive={item.data}
                   linksOpen={expandedLinks === item.data.id}
                   onToggleLinks={() => toggleLinks(item.data.id)}
                   onDelete={() => setDeleteTarget(item)}
@@ -248,14 +251,14 @@ export default function Dashboard() {
   );
 }
 
-function StreamCard({ stream: s, linksOpen, onToggleLinks, onDelete, isSelected, onToggleSelection }: {
+function StreamCard({ stream: s, linksOpen, onToggleLinks, onDelete, isSelected, onToggleSelection }: Readonly<{
   stream: Stream;
   linksOpen: boolean;
   onToggleLinks: () => void;
   onDelete: () => void;
   isSelected: boolean;
   onToggleSelection: () => void;
-}) {
+}>) {
   const { data: watchLink } = useQuery({
     queryKey: ["links", "for", s.id],
     queryFn: () => linksApi.for({ stream_id: s.id }),
@@ -263,8 +266,8 @@ function StreamCard({ stream: s, linksOpen, onToggleLinks, onDelete, isSelected,
   });
 
   return (
-    <div className={`bg-[#1a1b23] border rounded-xl p-4 transition-colors ${
-      isSelected ? "border-blue-500/50 bg-blue-500/5" : "border-[#2e3042]"
+    <div className={`bg-surface border rounded-xl p-4 transition-colors ${
+      isSelected ? "border-blue-500/50 bg-blue-500/5" : "border-surface-border"
     }`}>
       <div className="flex items-start gap-3">
         <input
@@ -284,7 +287,7 @@ function StreamCard({ stream: s, linksOpen, onToggleLinks, onDelete, isSelected,
             )}
             <p className="text-white font-medium">{s.title}</p>
             <span className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_COLORS[s.status] ?? ""}`}>{s.status}</span>
-            <span className="text-xs text-gray-600 bg-[#13141a] px-2 py-0.5 rounded">{s.tier || "–"}</span>
+            <span className="text-xs text-gray-600 bg-surface-deep px-2 py-0.5 rounded">{s.tier || "–"}</span>
           </div>
           {s.scheduled_at && s.status === "scheduled" && (
             <p className="text-xs text-gray-500 mt-0.5">Scheduled: {new Date(s.scheduled_at).toLocaleString()}</p>
@@ -316,22 +319,22 @@ function StreamCard({ stream: s, linksOpen, onToggleLinks, onDelete, isSelected,
   );
 }
 
-function ArchiveCard({ archive: a, linksOpen, onToggleLinks, onDelete, isSelected, onToggleSelection }: {
+function ArchiveCard({ archive: a, linksOpen, onToggleLinks, onDelete, isSelected, onToggleSelection }: Readonly<{
   archive: Archive;
   linksOpen: boolean;
   onToggleLinks: () => void;
   onDelete: () => void;
   isSelected: boolean;
   onToggleSelection: () => void;
-}) {
+}>) {
   const { data: watchLink } = useQuery({
     queryKey: ["links", "for", a.stream_id],
     queryFn: () => linksApi.for({ stream_id: a.stream_id }),
   });
 
   return (
-    <div className={`bg-[#1a1b23] border rounded-xl p-4 transition-colors ${
-      isSelected ? "border-blue-500/50 bg-blue-500/5" : "border-[#2e3042]"
+    <div className={`bg-surface border rounded-xl p-4 transition-colors ${
+      isSelected ? "border-blue-500/50 bg-blue-500/5" : "border-surface-border"
     }`}>
       <div className="flex items-start gap-3">
         <input
@@ -374,14 +377,14 @@ function ArchiveCard({ archive: a, linksOpen, onToggleLinks, onDelete, isSelecte
   );
 }
 
-function LinkToggleBtn({ open, onClick }: { open: boolean; onClick: () => void }) {
+function LinkToggleBtn({ open, onClick }: Readonly<{ open: boolean; onClick: () => void }>) {
   return (
     <button
       onClick={onClick}
       className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
         open
           ? "border-blue-500/40 text-blue-400 bg-blue-500/10"
-          : "border-[#2e3042] text-gray-400 hover:text-white hover:border-gray-500"
+          : "border-surface-border text-gray-400 hover:text-white hover:border-gray-500"
       }`}
     >
       Links
@@ -400,5 +403,5 @@ function fmtSize(bytes: number) {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
-const inputCls    = "px-3 py-2 rounded-lg bg-[#13141a] border border-[#2e3042] text-white text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors";
+const inputCls    = "px-3 py-2 rounded-lg bg-surface-deep border border-surface-border text-white text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors";
 const deleteBtnCls = "text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors";

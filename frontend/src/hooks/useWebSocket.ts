@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 export interface WSMessage {
   type: string;
@@ -15,35 +15,37 @@ export function useWebSocket(
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
-  onMessageRef.current = onMessage; // always call the latest callback
-
-  const connect = useCallback(() => {
-    if (!streamId) return;
-
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${protocol}://${window.location.host}/ws/stream/${streamId}`;
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data) as WSMessage;
-        onMessageRef.current(msg);
-      } catch {
-        // Ignore malformed messages.
-      }
-    };
-
-    ws.onclose = () => {
-      // Reconnect after 3 seconds on unexpected close.
-      setTimeout(connect, 3000);
-    };
-  }, [streamId]);
+  useLayoutEffect(() => {
+    onMessageRef.current = onMessage;
+  });
 
   useEffect(() => {
+    if (!streamId) return;
+
+    const connect = () => {
+      const protocol = globalThis.location.protocol === "https:" ? "wss" : "ws";
+      const url = `${protocol}://${globalThis.location.host}/ws/stream/${streamId}`;
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data) as WSMessage;
+          onMessageRef.current(msg);
+        } catch {
+          // Ignore malformed messages.
+        }
+      };
+
+      ws.onclose = () => {
+        // Reconnect after 3 seconds on unexpected close.
+        setTimeout(connect, 3000);
+      };
+    };
+
     connect();
     return () => {
       wsRef.current?.close();
     };
-  }, [connect]);
+  }, [streamId]);
 }

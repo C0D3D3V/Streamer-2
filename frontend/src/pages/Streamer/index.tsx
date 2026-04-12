@@ -1,4 +1,4 @@
-import {useState, useRef, useEffect, useCallback} from "react";
+import {useState, useRef, useEffect, useLayoutEffect, useCallback} from "react";
 import {useParams, useNavigate} from "react-router-dom";
 import {useQuery, useMutation} from "@tanstack/react-query";
 import {streamsApi, type Tier} from "../../api/streams";
@@ -352,7 +352,9 @@ export default function StreamerPage() {
   };
   // Keep ref in sync so the stall-detection interval always has the latest
   // version even though the function is not wrapped in useCallback.
-  handleStopRef.current = handleStop;
+  useLayoutEffect(() => {
+    handleStopRef.current = handleStop;
+  });
 
   const toggleFacing = () => {
     if (!isLive) {

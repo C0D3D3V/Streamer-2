@@ -18,7 +18,7 @@ export default function SetupWizard() {
     issuer_url: "",
     client_id: "",
     client_secret: "",
-    external_url: window.location.origin,
+    external_url: globalThis.location.origin,
   });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -26,7 +26,7 @@ export default function SetupWizard() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
@@ -57,7 +57,7 @@ export default function SetupWizard() {
           </p>
         </div>
 
-        <div className="bg-[#1a1b23] border border-[#2e3042] rounded-xl p-6 shadow-xl">
+        <div className="bg-surface border border-surface-border rounded-xl p-6 shadow-xl">
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field label="Authelia Issuer URL" hint="Base URL of your Authelia instance">
               <input
@@ -134,7 +134,7 @@ export default function SetupWizard() {
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
+function Field({ label, hint, children }: Readonly<{ label: string; hint?: React.ReactNode; children: React.ReactNode }>) {
   return (
     <div className="space-y-1.5">
       <label className="block text-sm font-medium text-gray-300">{label}</label>
@@ -145,4 +145,4 @@ function Field({ label, hint, children }: { label: string; hint?: React.ReactNod
 }
 
 const inputClass =
-  "w-full px-3 py-2 rounded-lg bg-[#13141a] border border-[#2e3042] text-white placeholder-gray-600 text-sm focus:outline-none focus:border-blue-500 transition-colors";
+  "w-full px-3 py-2 rounded-lg bg-surface-deep border border-surface-border text-white placeholder-gray-600 text-sm focus:outline-none focus:border-blue-500 transition-colors";

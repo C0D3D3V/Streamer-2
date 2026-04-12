@@ -3,9 +3,11 @@
 @theme {
   --color-brand: #3b82f6;
   --color-brand-dark: #2563eb;
+  --color-surface-deep: #13141a;
   --color-surface: #1a1b23;
   --color-surface-raised: #22232e;
   --color-surface-border: #2e3042;
+  --color-surface-border-hover: #3a3d54;
 }
 
 body {

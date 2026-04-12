@@ -1,19 +1,28 @@
+import { useEffect, useRef } from "react";
+
 interface Props {
-  title: string;
-  message: string;
-  confirmLabel?: string;
-  onConfirm: () => void;
-  onCancel: () => void;
+  readonly title: string;
+  readonly message: string;
+  readonly confirmLabel?: string;
+  readonly onConfirm: () => void;
+  readonly onCancel: () => void;
 }
 
 export function ConfirmDialog({ title, message, confirmLabel = "Delete", onConfirm, onCancel }: Props) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    dialogRef.current?.showModal();
+  }, []);
+
   return (
-    <div
+    <dialog
+      ref={dialogRef}
+      onClose={onCancel}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
-      <div className="w-full max-w-sm bg-[#1a1b23] border border-[#2e3042] rounded-2xl shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2e3042]">
+      <div className="w-full max-w-sm bg-surface border border-surface-border rounded-2xl shadow-xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border">
           <h2 className="text-white font-semibold">{title}</h2>
           <button onClick={onCancel} className="text-gray-500 hover:text-white transition-colors text-lg leading-none">✕</button>
         </div>
@@ -22,7 +31,7 @@ export function ConfirmDialog({ title, message, confirmLabel = "Delete", onConfi
           <div className="flex gap-3 justify-end">
             <button
               onClick={onCancel}
-              className="px-4 py-2 rounded-lg border border-[#2e3042] text-gray-400 hover:text-white hover:border-gray-500 text-sm transition-colors"
+              className="px-4 py-2 rounded-lg border border-surface-border text-gray-400 hover:text-white hover:border-gray-500 text-sm transition-colors"
             >
               Cancel
             </button>
@@ -35,6 +44,6 @@ export function ConfirmDialog({ title, message, confirmLabel = "Delete", onConfi
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

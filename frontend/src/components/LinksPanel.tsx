@@ -1,15 +1,13 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { linksApi, type SharedLink } from "../api/links";
 
 interface Props {
   /** ID of the stream — used for both listing and creating (Dashboard). */
-  streamId?: string;
+  readonly streamId?: string;
   /** ID of the archive — used for creating; combined with streamId for listing (Archive). */
-  archiveId?: string;
+  readonly archiveId?: string;
 }
-
-type CopiedKey = string; // `${linkId}`
 
 export function LinksPanel({ streamId, archiveId }: Props) {
   const queryClient = useQueryClient();
@@ -41,9 +39,9 @@ export function LinksPanel({ streamId, archiveId }: Props) {
   const [slug,      setSlug]      = useState("");
   const [password,  setPassword]  = useState("");
   const [slugError, setSlugError] = useState<string | null>(null);
-  const [copied,    setCopied]    = useState<CopiedKey | null>(null);
+  const [copied,    setCopied]    = useState<string | null>(null);
 
-  const origin = window.location.origin;
+  const origin = globalThis.location.origin;
 
   const validateSlug = (v: string) => {
     if (!v) return null;
@@ -58,7 +56,7 @@ export function LinksPanel({ streamId, archiveId }: Props) {
     setSlugError(validateSlug(v));
   };
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     const ve = validateSlug(slug);
     if (ve) { setSlugError(ve); return; }
@@ -71,14 +69,46 @@ export function LinksPanel({ streamId, archiveId }: Props) {
     });
   };
 
-  const copyUrl = async (key: CopiedKey, url: string) => {
+  const copyUrl = async (key: string, url: string) => {
     await navigator.clipboard.writeText(url);
     setCopied(key);
     setTimeout(() => setCopied((k) => (k === key ? null : k)), 2000);
   };
 
+  const createError = createMutation.error;
+  const createErrorMessage = createError?.message.toLowerCase().includes("taken")
+    ? "That short name is already taken."
+    : createError?.message;
+
+  let linksContent: ReactNode;
+  if (isLoading) {
+    linksContent = (
+      <div className="flex justify-center py-3">
+        <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  } else if (links.length === 0) {
+    linksContent = <p className="text-xs text-gray-600 py-1">No links yet.</p>;
+  } else {
+    linksContent = (
+      <div className="space-y-2">
+        {links.map((link) => (
+          <LinkRow
+            key={link.id}
+            link={link}
+            origin={origin}
+            copied={copied}
+            onCopy={copyUrl}
+            onDelete={() => deleteMutation.mutate(link.id)}
+            deleting={deleteMutation.isPending && deleteMutation.variables === link.id}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="mt-3 pt-3 border-t border-[#2e3042]">
+    <div className="mt-3 pt-3 border-t border-surface-border">
       {/* Header row */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-medium text-gray-400">Share links</span>
@@ -92,9 +122,9 @@ export function LinksPanel({ streamId, archiveId }: Props) {
 
       {/* Create form */}
       {formOpen && (
-        <form onSubmit={handleCreate} className="mb-3 p-3 rounded-lg bg-[#13141a] border border-[#2e3042] space-y-2">
+        <form onSubmit={handleCreate} className="mb-3 p-3 rounded-lg bg-surface-deep border border-surface-border space-y-2">
           <div>
-            <div className="flex items-center bg-[#1a1b23] border border-[#2e3042] rounded-lg overflow-hidden focus-within:border-blue-500 transition-colors">
+            <div className="flex items-center bg-surface border border-surface-border rounded-lg overflow-hidden focus-within:border-blue-500 transition-colors">
               <span className="px-2 text-gray-600 text-xs select-none shrink-0">/watch/</span>
               <input
                 value={slug}
@@ -110,22 +140,16 @@ export function LinksPanel({ streamId, archiveId }: Props) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password (optional)"
-            className="w-full px-2 py-1.5 rounded-lg bg-[#1a1b23] border border-[#2e3042] text-white text-xs placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full px-2 py-1.5 rounded-lg bg-surface border border-surface-border text-white text-xs placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors"
           />
-          {createMutation.error && (
-            <p className="text-xs text-red-400">
-              {createMutation.error instanceof Error
-                ? (createMutation.error.message.toLowerCase().includes("taken")
-                    ? "That short name is already taken."
-                    : createMutation.error.message)
-                : "Failed to create link."}
-            </p>
+          {createError && (
+            <p className="text-xs text-red-400">{createErrorMessage}</p>
           )}
           <div className="flex gap-2 justify-end">
             <button
               type="button"
               onClick={() => setFormOpen(false)}
-              className="text-xs px-3 py-1.5 rounded-lg border border-[#2e3042] text-gray-400 hover:text-white transition-colors"
+              className="text-xs px-3 py-1.5 rounded-lg border border-surface-border text-gray-400 hover:text-white transition-colors"
             >
               Cancel
             </button>
@@ -141,41 +165,21 @@ export function LinksPanel({ streamId, archiveId }: Props) {
       )}
 
       {/* Links list */}
-      {isLoading ? (
-        <div className="flex justify-center py-3">
-          <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-        </div>
-      ) : links.length === 0 ? (
-        <p className="text-xs text-gray-600 py-1">No links yet.</p>
-      ) : (
-        <div className="space-y-2">
-          {links.map((link) => (
-            <LinkRow
-              key={link.id}
-              link={link}
-              origin={origin}
-              copied={copied}
-              onCopy={copyUrl}
-              onDelete={() => deleteMutation.mutate(link.id)}
-              deleting={deleteMutation.isPending && deleteMutation.variables === link.id}
-            />
-          ))}
-        </div>
-      )}
+      {linksContent}
     </div>
   );
 }
 
 function LinkRow({
   link, origin, copied, onCopy, onDelete, deleting,
-}: {
+}: Readonly<{
   link: SharedLink;
   origin: string;
-  copied: CopiedKey | null;
-  onCopy: (key: CopiedKey, url: string) => void;
+  copied: string | null;
+  onCopy: (key: string, url: string) => void;
   onDelete: () => void;
   deleting: boolean;
-}) {
+}>) {
   // If the link has a slug, show only the slug URL (shorter and more memorable).
   // Only fall back to the token URL when no slug is set.
   const displayUrl = link.slug
@@ -183,12 +187,12 @@ function LinkRow({
     : `${origin}/watch/${link.token}`;
 
   return (
-    <div className="rounded-lg bg-[#13141a] border border-[#2e3042] px-3 py-2 space-y-1.5">
+    <div className="rounded-lg bg-surface-deep border border-surface-border px-3 py-2 space-y-1.5">
       <div className="flex items-center gap-2">
         <span className="flex-1 text-xs text-gray-400 font-mono truncate min-w-0">{displayUrl}</span>
         <button
           onClick={() => onCopy(link.id, displayUrl)}
-          className="shrink-0 text-xs px-2 py-0.5 rounded bg-[#2e3042] hover:bg-[#3a3d54] text-gray-300 hover:text-white transition-colors"
+          className="shrink-0 text-xs px-2 py-0.5 rounded bg-surface-border hover:bg-surface-border-hover text-gray-300 hover:text-white transition-colors"
         >
           {copied === link.id ? "✓" : "Copy"}
         </button>
