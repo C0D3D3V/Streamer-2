@@ -12,6 +12,7 @@ export interface WSMessage {
 export function useWebSocket(
   streamId: string | undefined,
   onMessage: (msg: WSMessage) => void,
+  options?: { query?: string },
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
@@ -24,7 +25,7 @@ export function useWebSocket(
 
     const connect = () => {
       const protocol = globalThis.location.protocol === "https:" ? "wss" : "ws";
-      const url = `${protocol}://${globalThis.location.host}/ws/stream/${streamId}`;
+      const url = `${protocol}://${globalThis.location.host}/ws/stream/${streamId}${options?.query ? `?${options.query}` : ""}`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
 

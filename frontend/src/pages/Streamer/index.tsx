@@ -3,6 +3,7 @@ import {useParams, useNavigate} from "react-router-dom";
 import {useQuery, useMutation} from "@tanstack/react-query";
 import {streamsApi, type Tier} from "../../api/streams";
 import {apiPostBinary} from "../../api/client";
+import {useWebSocket} from "../../hooks/useWebSocket";
 
 // Resolution tiers — defined by the long side only. The short side is computed
 // from the camera's native aspect ratio so no 16:9 cropping is forced.
@@ -91,6 +92,7 @@ export default function StreamerPage() {
   const isLiveRef = useRef(false);
 
   const [isLive, setIsLive] = useState(false);
+  const [viewerCount, setViewerCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -113,6 +115,14 @@ export default function StreamerPage() {
     const base = stream?.title ?? "Streamer";
     document.title = isLive ? `● ${base} – Streamer` : `${base} – Streamer`;
   }, [stream?.title, isLive]);
+
+  // Connect to the WebSocket while live to receive viewer count updates.
+  // The streamer=true flag excludes this connection from the count itself.
+  useWebSocket(isLive ? id : undefined, (msg) => {
+    if (msg.type === "viewer.count") {
+      setViewerCount((msg.payload as {count: number}).count);
+    }
+  }, {query: "streamer=true"});
 
   // ── Effect 1: capability probe ────────────────────────────────────────────
   // Runs when the camera or facing changes. Does NOT open the camera itself;
@@ -348,6 +358,7 @@ export default function StreamerPage() {
     }
     mediaRecorderRef.current?.stop();
     setIsLive(false);
+    setViewerCount(null);
     await stopMutation.mutateAsync();
   };
   // Keep ref in sync so the stall-detection interval always has the latest
@@ -511,13 +522,11 @@ export default function StreamerPage() {
           </div>
         </div>
 
-        {/* Persistent hint while live — reminds the streamer to keep the tab
-            active. Shown in the bottom-left so it stays visible at all times
-            (a full-screen overlay is useless because the tab is hidden). */}
-        {isLive && (
+        {/* Viewer count — shown in bottom-left while live. */}
+        {isLive && viewerCount !== null && (
           <div className="absolute bottom-4 left-4">
             <p className="text-xs text-gray-500 bg-black/50 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10">
-              Keep tab active
+              {viewerCount} {viewerCount === 1 ? "viewer" : "viewers"}
             </p>
           </div>
         )}

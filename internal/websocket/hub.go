@@ -35,9 +35,10 @@ type Message struct {
 
 // client represents a single WebSocket connection subscribed to a stream.
 type client struct {
-	streamID string
-	conn     *gorillaws.Conn
-	send     chan []byte
+	streamID   string
+	conn       *gorillaws.Conn
+	send       chan []byte
+	isStreamer bool
 }
 
 // hub maintains the set of active clients and broadcasts messages to them.
@@ -73,24 +74,43 @@ func (h *hub) Broadcast(streamID string, msg Message) {
 	}
 }
 
-// register adds a client to the hub.
+// register adds a client to the hub and broadcasts the updated viewer count.
 func (h *hub) register(c *client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if h.clients[c.streamID] == nil {
 		h.clients[c.streamID] = make(map[*client]struct{})
 	}
 	h.clients[c.streamID][c] = struct{}{}
+	h.mu.Unlock()
+	h.broadcastViewerCount(c.streamID)
 }
 
-// unregister removes a client from the hub and closes its send channel.
+// unregister removes a client from the hub and broadcasts the updated viewer count.
 func (h *hub) unregister(c *client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if _, ok := h.clients[c.streamID][c]; ok {
 		delete(h.clients[c.streamID], c)
 		close(c.send)
 	}
+	h.mu.Unlock()
+	h.broadcastViewerCount(c.streamID)
+}
+
+// broadcastViewerCount sends a viewer.count event to all clients on a stream.
+// Streamer connections are excluded from the count.
+func (h *hub) broadcastViewerCount(streamID string) {
+	h.mu.RLock()
+	count := 0
+	for c := range h.clients[streamID] {
+		if !c.isStreamer {
+			count++
+		}
+	}
+	h.mu.RUnlock()
+	h.Broadcast(streamID, Message{
+		Type:    "viewer.count",
+		Payload: map[string]int{"count": count},
+	})
 }
 
 var upgrader = gorillaws.Upgrader{
@@ -111,9 +131,10 @@ func HandleWS(c *gin.Context) {
 	}
 
 	cl := &client{
-		streamID: streamID,
-		conn:     conn,
-		send:     make(chan []byte, 32),
+		streamID:   streamID,
+		conn:       conn,
+		send:       make(chan []byte, 32),
+		isStreamer: c.Query("streamer") == "true",
 	}
 	Hub.register(cl)
 
