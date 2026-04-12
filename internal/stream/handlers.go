@@ -348,7 +348,7 @@ func HandleServeMedia(c *gin.Context) {
 
 	fullPath := filepath.Join(s.LiveDir, filepath.Clean(filePath))
 
-	// Security: ensure the resolved path is still inside the DASH directory.
+	// Security: ensure the resolved path is still inside the live directory.
 	// This prevents path traversal attacks (e.g. /../../../etc/passwd).
 	absDashDir, _ := filepath.Abs(s.LiveDir)
 	absPath, _ := filepath.Abs(fullPath)

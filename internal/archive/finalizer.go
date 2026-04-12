@@ -26,7 +26,7 @@ type streamInfo struct {
 	OwnerID string
 }
 
-// Finalize concatenates all fMP4 segments in a stream's DASH directory into a
+// Finalize concatenates all fMP4 segments in a stream's live directory into a
 // single MP4 file using ffmpeg, then creates an Archive record in the database.
 //
 // This is called asynchronously from the stream stop handler so that the HTTP
@@ -41,7 +41,7 @@ func Finalize(id, title, liveDir, ownerID string) {
 
 func finalize(s streamInfo) error {
 	if s.LiveDir == "" {
-		return fmt.Errorf("stream %s has no DASH directory", s.ID)
+		return fmt.Errorf("stream %s has no live directory", s.ID)
 	}
 
 	// Collect the fMP4 init segments and all media chunk segments.
@@ -158,7 +158,7 @@ func finalize(s streamInfo) error {
 	// Optionally clean up the raw DASH segments to save disk space.
 	if !config.Get().App.KeepSegmentsAfterFinalization {
 		if err := os.RemoveAll(s.LiveDir); err != nil {
-			log.Printf("archive[%s]: warning: failed to remove DASH dir: %v", s.ID, err)
+			log.Printf("archive[%s]: warning: failed to remove live dir: %v", s.ID, err)
 		}
 	}
 

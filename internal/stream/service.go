@@ -79,10 +79,10 @@ func Start(id, ownerID string, rotation int, tier Tier, aspectRatio float64) (*S
 		return nil, ErrInvalidTransition
 	}
 
-	// Create the DASH output directory for this stream.
-	liveDir := filepath.Join(config.Get().App.DataDir, "dash", id)
+	// Create the live output directory for this stream.
+	liveDir := filepath.Join(config.Get().App.DataDir, "live", id)
 	if err := os.MkdirAll(liveDir, 0o775); err != nil {
-		return nil, fmt.Errorf("create DASH dir: %w", err)
+		return nil, fmt.Errorf("create live dir: %w", err)
 	}
 
 	now := time.Now()
